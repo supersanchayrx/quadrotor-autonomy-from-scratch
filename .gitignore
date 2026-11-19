@@ -1,0 +1,28 @@
+# Build output
+build/
+out/
+cmake-build-*/
+.vs/
+.vscode/
+*.exe
+*.o
+*.obj
+*.a
+*.lib
+*.dll
+*.so
+*.pdb
+*.ilk
+
+# Python (plotting)
+.venv/
+__pycache__/
+*.pyc
+
+# Benchmark downloads and run outputs
+data/
+runs/
+logs/
+
+# Local build notes
+context-docs/
