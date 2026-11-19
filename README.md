@@ -19,6 +19,7 @@ The questions this project answers with its own measurements:
 
 | Layer | What it does |
 |---|---|
+| **Middleware** | Every layer below is a component that publishes and subscribes typed messages on an in-process message bus. A deterministic multi-rate scheduler ticks each component at its own rate in simulated time, so a run is reproducible from its seed. Every message is recorded, and a recorded flight can be replayed into one component (say the EKF or the mission logic) to debug it offline without re-flying |
 | **Rigid-body dynamics** | 6-DOF Newton-Euler equations, quaternion attitude, body rates, diagonal inertia, linear drag, ground contact. Integrated with RK4 at 1 kHz, quaternion renormalised each step |
 | **Motors and mixer** | X-configuration, thrust k_f·ω² and drag torque k_m·ω² per rotor, first-order motor lag, saturation. The allocation matrix maps collective thrust and body torques to rotor speeds |
 | **Environment** | Constant wind plus gusts (Ornstein-Uhlenbeck), gravity, and a battery model that drains with electrical power |
@@ -30,7 +31,8 @@ The questions this project answers with its own measurements:
 | **Mission** | Arm → take off → fly route → land, with failsafes as higher-priority branches: low battery → return to launch, GPS lost → hold and land, geofence breach → return to launch |
 | **Scenarios** | JSON files describing the route, wind, sensor faults (GPS dropout, IMU bias step, rotor efficiency loss), battery and the pass criteria |
 | **SIL harness** | Runs a scenario headless, faster than real time; a Monte Carlo runner sweeps seeds and reports pass rate, tracking error and estimator error; every run writes a CSV log |
-| **Tools** | Python plots from the CSV logs; a 3D replay viewer for logs (raylib) |
+| **Scenario tests** | A pytest suite drives the simulator binary once per scenario and seed, parses the logs and asserts each scenario's pass criteria, so a failing seed becomes a named, reproducible test |
+| **Tools** | Python log parsing and plots; a Docker image so the build and the scenario suite run the same on Linux CI as locally; a 3D replay viewer for logs (raylib) |
 
 ## Evaluation (planned)
 
@@ -44,7 +46,7 @@ Method, raw logs and plots will live in `RESULTS.md`.
 
 ## Testing
 
-GoogleTest for units, the scenario suite for integration, both in CI on every push.
+GoogleTest for units, the pytest scenario suite for integration, both in CI (inside the Docker image) on every push.
 
 - Quaternion operations: unit norm preserved, composition and inverse round-trip, rotation of known vectors.
 - RK4 integration error shrinks at fourth order as the step size halves.
@@ -53,18 +55,21 @@ GoogleTest for units, the scenario suite for integration, both in CI on every pu
 - The EKF with zero noise and a perfect model tracks the truth exactly; with noise, NEES stays inside its bounds.
 - Behavior-tree semantics: each node type's SUCCESS / FAILURE / RUNNING behavior and halting of running children, checked against hand-written tick sequences.
 - Every scenario has machine-checked pass criteria, and a run with the same seed produces a byte-identical log.
+- Replaying a recorded flight into the EKF reproduces the estimates recorded live, exactly.
+- The message bus delivers in a fixed order per tick, and a component never sees a message stamped later than the current simulated time.
 
 ## Roadmap
 
 - [x] Scope and design
+- [ ] Message bus, multi-rate scheduler and message recording
 - [ ] Math helpers, RK4 and rigid-body dynamics, tested against closed-form cases
 - [ ] Motor model, mixer and open-loop hover
 - [ ] Cascaded controller on true state: step responses and route tracking in wind
 - [ ] Sensor models with noise and bias
 - [ ] Error-state EKF, NEES tests, GPS-glitch gating; controller flown on the estimate
 - [ ] Behavior-tree engine, mission and failsafes
-- [ ] Scenario files, fault injection, Monte Carlo runner and CI
-- [ ] 3D log replay viewer, results and write-up
+- [ ] Scenario files, fault injection, Monte Carlo runner, pytest scenario suite, Docker image and CI
+- [ ] Log replay into single components, 3D replay viewer, results and write-up
 
 **Later, if the core lands:** minimum-snap trajectories, routes from the motion planner around no-fly zones, several vehicles sharing one airspace, a comparison against PX4 SITL on the same route, and a ROS 2 bridge.
 
@@ -73,6 +78,7 @@ GoogleTest for units, the scenario suite for integration, both in CI on every pu
 ```
 include/quad/     # public headers
 src/
+  bus/            # typed message bus, multi-rate scheduler, recorder, replay
   math/           # quaternion helpers, RK4
   sim/            # rigid body, motors, environment, battery, sensors
   estimation/     # error-state EKF
@@ -87,13 +93,15 @@ apps/
   viewer/         # 3D log replay
 scenarios/        # *.json
 tests/            # GoogleTest suites
-tools/plot.py     # plots from CSV logs
+scenario_tests/   # pytest suite: fly each scenario, assert pass criteria on the logs
+tools/            # log parsing and plots
+Dockerfile        # Linux build + test image used by CI
 results/          # RESULTS.md, figures
 ```
 
 ## Requirements
 
-C++17 compiler (GCC, Clang or MSVC), CMake 3.20+. Eigen for linear algebra, GoogleTest, nlohmann/json for scenario files and raylib for the viewer, all fetched by CMake. No robotics, estimation or control library. Python with matplotlib only for plotting.
+C++17 compiler (GCC, Clang or MSVC), CMake 3.20+. Eigen for linear algebra, GoogleTest, nlohmann/json for scenario files and raylib for the viewer, all fetched by CMake. No robotics, middleware, estimation or control library. Python with pytest and matplotlib for the scenario suite and plots. Docker for the CI image.
 
 ## References
 
